@@ -2,57 +2,58 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"net"
+	"os"
 	"time"
 
+	. "github.com/Taowyoo/Simulate-IPAM---CSYE6225-Lab01/ipamclient"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
 
-func main() {
-	queue := flag.String("q", "", "The name of the queue")
-	timeout := flag.Int("t", 5, "How long, in seconds, that the message is hidden from others")
-	flag.Parse()
+var configPath string = "config.json"
 
-	if *queue == "" {
-		fmt.Println("You must supply the name of a queue (-q QUEUE)")
+type Cfg struct {
+	QueueName     string
+	InitIPAddress []string
+}
+
+func readConfig() (c Cfg) {
+	jsonFile, err := os.Open(configPath)
+	// if we os.Open returns an error then handle it
+	if err != nil {
+		fmt.Printf("Open %s error:\n%s\n", configPath, err)
+	}
+	// defer the closing of our jsonFile so that we can parse it later on
+	defer jsonFile.Close()
+	data, err := ioutil.ReadAll(jsonFile)
+	if err != nil {
+		fmt.Printf("Read %s error:\n%s\n", configPath, err)
+	}
+	err = json.Unmarshal(data, &c)
+	if err != nil {
+		fmt.Printf("Parse %s error:\n%s\n", configPath, err)
+	}
+	return
+}
+
+func sendIP(ipStr string, queueURL *string, client *sqs.Client) (err error) {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		fmt.Println("Meet an invalid initial ip address:", ipStr)
 		return
 	}
-
-	if *timeout < 0 {
-		*timeout = 0
+	ipType := "ipv4"
+	if len(ip) != 4 {
+		ipType = "ipv6"
 	}
-
-	if *timeout > 12*60*60 {
-		*timeout = 12 * 60 * 60
-	}
-
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		panic("configuration error, " + err.Error())
-	}
-
-	client := sqs.NewFromConfig(cfg)
-
-	gQInput := &sqs.GetQueueUrlInput{
-		QueueName: queue,
-	}
-
-	// Get URL of queue
-	urlResult, err := GetQueueURL(context.TODO(), client, gQInput)
-	if err != nil {
-		fmt.Println("Got an error getting the queue URL:")
-		fmt.Println(err)
-		return
-	}
-
-	queueURL := urlResult.QueueUrl
-
 	sMInput := &sqs.SendMessageInput{
-		// DelaySeconds: 10,  // Not available for FIFO SQS Queue
 		MessageAttributes: map[string]types.MessageAttributeValue{
 			"Name": {
 				DataType:    aws.String("String"),
@@ -60,58 +61,86 @@ func main() {
 			},
 			"Type": {
 				DataType:    aws.String("Number"),
-				StringValue: aws.String("4"),
+				StringValue: aws.String(ipType),
 			},
 			"Timestamp": {
 				DataType:    aws.String("String"),
 				StringValue: aws.String(time.Now().Format(time.RFC3339)),
 			},
 		},
-		MessageBody:    aws.String("192.168.0.100"),
-		MessageGroupId: aws.String("Available IP"),
+		MessageBody:    aws.String(ipStr),
+		MessageGroupId: aws.String("available_ip"),
 		QueueUrl:       queueURL,
 	}
-	fmt.Println(*sMInput.MessageBody)
-	resp, err := SendMsg(context.TODO(), client, sMInput)
+
+	_, err = SendMsg(context.TODO(), client, sMInput)
 	if err != nil {
-		fmt.Println("Got an error sending the message:")
-		fmt.Println(err)
 		return
 	}
+	fmt.Println("Sent", ip)
+	return
+}
 
-	fmt.Println("Sent message with ID: " + *resp.MessageId)
-
+func receiveIP(maxNumberOfMessages int32, queueURL *string, client *sqs.Client) (msgResult *sqs.ReceiveMessageOutput, err error) {
 	gMInput := &sqs.ReceiveMessageInput{
 		MessageAttributeNames: []string{
 			string(types.QueueAttributeNameAll),
 		},
 		QueueUrl:            queueURL,
-		MaxNumberOfMessages: 1,
-		VisibilityTimeout:   int32(*timeout),
+		MaxNumberOfMessages: maxNumberOfMessages,
 	}
+	msgResult, err = GetMessages(context.TODO(), client, gMInput)
+	return
+}
 
-	msgResult, err := GetMessages(context.TODO(), client, gMInput)
-	if err != nil {
-		fmt.Println("Got an error receiving messages:")
-		fmt.Println(err)
-		return
-	}
-	fmt.Printf("Got %v message.\n", len(msgResult.Messages))
-	if len(msgResult.Messages) == 0 {
-		return
-	}
-	PrintMsgResult(msgResult)
-
+func deleteIP(queueURL *string, client *sqs.Client, receipt *string) (err error) {
 	dMInput := &sqs.DeleteMessageInput{
 		QueueUrl:      queueURL,
-		ReceiptHandle: msgResult.Messages[0].ReceiptHandle,
+		ReceiptHandle: receipt,
+	}
+	_, err = RemoveMessage(context.TODO(), client, dMInput)
+	return
+}
+
+func main() {
+
+	myCfg := readConfig()
+
+	queue := flag.String("q", myCfg.QueueName, "The name of the queue")
+	flag.Parse()
+
+	if *queue == "" {
+		fmt.Println("You must supply the name of a queue (-q QUEUE)")
+		return
 	}
 
-	_, err = RemoveMessage(context.TODO(), client, dMInput)
+	// Load AWS Config from configuration and credential files
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		fmt.Println("Got an error deleting the message:")
+		panic("AWS configuration error, " + err.Error())
+	}
+
+	// Create AWS client from config
+	client := sqs.NewFromConfig(cfg)
+	// Get URL of queue
+	gQInput := &sqs.GetQueueUrlInput{
+		QueueName: queue,
+	}
+	urlResult, err := GetQueueURL(context.TODO(), client, gQInput)
+	if err != nil {
+		fmt.Println("Got an error getting the queue URL:")
 		fmt.Println(err)
 		return
 	}
+	queueURL := urlResult.QueueUrl
+
+	// send initial ips
+
+	// receive ip
+
+	// Setup initial ips on server
+	var msgResult *sqs.ReceiveMessageOutput
+	msgResult, err = receiveIP(1, queueURL, client)
+
 	fmt.Println("Succeed to delete one message.")
 }
