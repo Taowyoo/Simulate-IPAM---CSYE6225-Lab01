@@ -1,4 +1,4 @@
-package sqsclient
+package ipamclient
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
-// SQSReceiveMessageAPI defines the interface for the GetQueueUrl function.
+// SQSMessageAPI defines the interface for the GetQueueUrl function.
 // We use this interface to test the function using a mocked service.
 type SQSMessageAPI interface {
 	GetQueueUrl(ctx context.Context,
@@ -19,12 +19,20 @@ type SQSMessageAPI interface {
 		params *sqs.SendMessageInput,
 		optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error)
 
+	SendMessageBatch(ctx context.Context,
+		params *sqs.SendMessageBatchInput,
+		optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error)
+
 	ReceiveMessage(ctx context.Context,
 		params *sqs.ReceiveMessageInput,
 		optFns ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error)
 
 	DeleteMessage(ctx context.Context,
 		params *sqs.DeleteMessageInput,
+		optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error)
+
+	DeleteMessageBatch(ctx context.Context,
+		params *sqs.DeleteMessageBatchInput,
 		optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error)
 }
 
@@ -52,6 +60,10 @@ func SendMsg(c context.Context, api SQSMessageAPI, input *sqs.SendMessageInput) 
 	return api.SendMessage(c, input)
 }
 
+func SendMsgBatch(c context.Context, api SQSMessageAPI, input *sqs.SendMessageBatchInput) (*sqs.SendMessageOutput, error) {
+	return api.SendMessageBatch(c, input)
+}
+
 // GetMessages gets the most recent message from an Amazon SQS queue.
 // Inputs:
 //     c is the context of the method call, which includes the AWS Region.
@@ -74,6 +86,10 @@ func GetMessages(c context.Context, api SQSMessageAPI, input *sqs.ReceiveMessage
 //     Otherwise, nil and an error from the call to DeleteMessage.
 func RemoveMessage(c context.Context, api SQSMessageAPI, input *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error) {
 	return api.DeleteMessage(c, input)
+}
+
+func RemoveMessageBatch(c context.Context, api SQSMessageAPI, input *sqs.DeleteMessageBatchInput) (*sqs.DeleteMessageOutput, error) {
+	return api.DeleteMessageBatch(c, input)
 }
 
 func PrintMsgResult(msgResult *sqs.ReceiveMessageOutput) {
