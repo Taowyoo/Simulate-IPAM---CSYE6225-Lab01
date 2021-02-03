@@ -47,14 +47,18 @@ func readJSONFile(path string) (data []byte) {
 
 func initConfig() {
 	cfgData := readJSONFile(configPath)
-	ipData := readJSONFile(ipPath)
 	err := json.Unmarshal(cfgData, &myCfg)
 	if err != nil {
 		fmt.Printf("Parse %s error:\n%s\n", configPath, err)
 		return
 	}
 	fmt.Println("Loaded config from", configPath)
-	err = json.Unmarshal(ipData, &ips)
+	return
+}
+
+func readIPs() {
+	ipData := readJSONFile(ipPath)
+	err := json.Unmarshal(ipData, &ips)
 	if err != nil {
 		fmt.Printf("Parse %s error:\n%s\n", ipPath, err)
 		return
@@ -66,7 +70,7 @@ func initConfig() {
 func main() {
 
 	initConfig()
-
+	readIPs()
 	queue := flag.String("q", myCfg.QueueName, "The name of the queue")
 	initEnable := flag.Bool("i", false, "Whether send init ip address")
 	flag.Parse()
@@ -123,6 +127,7 @@ func main() {
 				}
 			}
 		case "a":
+			readIPs()
 			ipamclient.SendInitIPs(&ips.InitIPAddress, queueURL, client)
 		case "q":
 			return
