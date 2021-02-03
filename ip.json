@@ -1,5 +1,4 @@
 {
-    "QueueName" : "testQueue.fifo",
     "InitIPAddress" : [
         "192.168.100.1",
         "192.168.100.2",
