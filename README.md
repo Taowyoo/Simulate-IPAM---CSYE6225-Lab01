@@ -8,9 +8,13 @@ Used the FIFO SQS Queue to store available IP addresses.
 
 This is a pure **CLI program**.
 
+The program read **config** and **credentials** for AWS SQS from [config.json](config.json) in following format:
+
+![config-format.png](img/config-format.png)
+
 After start the program:
 
-- Enter `a` to let program send some IP addresses stored in [config.json](config.json) to server.
+- Enter `a` to let program send some IP addresses stored in [ip.json](ip.json) to server.
 - Enter `c` to get an available IP address from server.
 - Enter `q` or `Ctrl + c` to quit the program.
 
@@ -42,5 +46,6 @@ go build ./cli
 
 ![Demo](img/run.gif)
 
+## TODO
 
-
+The GUI is under developing under [./gui](./gui)
