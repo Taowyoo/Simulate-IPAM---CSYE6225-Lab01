@@ -9,59 +9,75 @@ import (
 	"os"
 
 	"github.com/Taowyoo/Simulate-IPAM---CSYE6225-Lab01/ipamclient"
-	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 var configPath string = "config.json"
+var ipPath string = "ip.json"
+var myCfg cfg
+var ips ipAddresses
 
 type cfg struct {
-	QueueName     string
+	QueueName string
+	Regin     string
+	AccessKey string
+	SecretKey string
+}
+
+type ipAddresses struct {
 	InitIPAddress []string
 }
 
-func readConfig() (c cfg) {
-	jsonFile, err := os.Open(configPath)
+func readJSONFile(path string) (data []byte) {
+	f, err := os.Open(path)
 	// if we os.Open returns an error then handle it
 	if err != nil {
-		fmt.Printf("Open %s error:\n%s\n", configPath, err)
+		fmt.Printf("Open %s error:\n%s\n", path, err)
 	}
 	// defer the closing of our jsonFile so that we can parse it later on
-	defer jsonFile.Close()
-	data, err := ioutil.ReadAll(jsonFile)
+	defer f.Close()
+	data, err = ioutil.ReadAll(f)
 	if err != nil {
-		fmt.Printf("Read %s error:\n%s\n", configPath, err)
+		fmt.Printf("Read %s error:\n%s\n", path, err)
 	}
-	err = json.Unmarshal(data, &c)
+	return
+}
+
+func initConfig() {
+	cfgData := readJSONFile(configPath)
+	ipData := readJSONFile(ipPath)
+	err := json.Unmarshal(cfgData, &myCfg)
 	if err != nil {
 		fmt.Printf("Parse %s error:\n%s\n", configPath, err)
+		return
 	}
 	fmt.Println("Loaded config from", configPath)
+	err = json.Unmarshal(ipData, &ips)
+	if err != nil {
+		fmt.Printf("Parse %s error:\n%s\n", ipPath, err)
+		return
+	}
+	fmt.Println("Loaded ip addresses from", ipPath)
 	return
 }
 
 func main() {
 
-	myCfg := readConfig()
+	initConfig()
 
 	queue := flag.String("q", myCfg.QueueName, "The name of the queue")
 	initEnable := flag.Bool("i", false, "Whether send init ip address")
 	flag.Parse()
 
-	if *queue == "" {
-		fmt.Println("You must supply the name of a queue (-q QUEUE)")
-		return
-	}
-
-	// Load AWS Config from configuration and credential files
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		panic("AWS configuration error, " + err.Error())
-	}
-
 	// Create AWS client from config
 	fmt.Println("Connecting to server...")
-	client := sqs.NewFromConfig(cfg)
+	client := sqs.New(sqs.Options{
+		Region:      myCfg.Regin,
+		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(myCfg.AccessKey, myCfg.SecretKey, "")),
+	})
+	// client := sqs.NewFromConfig(cfg)
 	fmt.Println("Server connected")
 
 	// Get URL of queue
@@ -78,7 +94,7 @@ func main() {
 
 	// send initial ips
 	if *initEnable {
-		ipamclient.SendInitIPs(&myCfg.InitIPAddress, queueURL, client)
+		ipamclient.SendInitIPs(&ips.InitIPAddress, queueURL, client)
 	}
 
 	// Start the loop to receive ip
@@ -107,7 +123,7 @@ func main() {
 				}
 			}
 		case "a":
-			ipamclient.SendInitIPs(&myCfg.InitIPAddress, queueURL, client)
+			ipamclient.SendInitIPs(&ips.InitIPAddress, queueURL, client)
 		case "q":
 			return
 		}
